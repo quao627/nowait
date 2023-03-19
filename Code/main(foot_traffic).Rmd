@@ -1,0 +1,793 @@
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt)
+library(lubridate)
+library(data.table)
+library(stargazer)
+library(dummies)
+restaurants <- read_csv("restaurants(foot_traffic).csv")
+reviews <- read_csv("reviews(foot_traffic).csv")
+```
+```{r}
+file <- "Third_parties_match(period=730 days,min_num=30).csv"
+caliper <- 0.2
+ratio <- 3
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+reviews$overall_complaint <- unlist(1 - (1-reviews$complain_line)*(1-reviews$complain_service))
+
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_party/", file, sep=""))
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+measure <- toString(model_result[1])
+observations <- toString(model_result[2])
+formula <- toString(model_result[3])
+measure_vector <- c(measure_vector, measure)
+observation_vector <- c(observation_vector, observations)
+formula_vector <- c(formula_vector, formula)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  #df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      #df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+no1_vector <- c(no1_vector, nrow(df_regression_1))
+no2_vector <- c(no2_vector, nrow(df_regression_2))
+no3_vector <- c(no3_vector, nrow(df_regression))
+
+
+orig_vars = c("After", "Treated", "Treated_X_After", "review_count", "num_competitors", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+#line  
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model13 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model14 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#overall
+fmla = as.formula(paste("overall_complaint ~ ", paste(vars, collapse="+")))
+model15 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model16 <- glm(fmla, data = df_regression_1, family = "gaussian")
+```
+```{r}
+df_regression$After_1 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time & x<(time + dyears(x = 2)))))
+df_regression$After_2 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 1)) & x<(time + dyears(x = 2)))))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After1 <- df_regression$After_1 * df_regression$Treated
+df_regression$Treated_X_After2 <- df_regression$After_2 * df_regression$Treated
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+model17 <- glm(complain_line ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + review_count + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "binomial")
+model18 <- glm(complain_service ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + review_count + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "binomial")
+model19 <- glm(ratings ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + review_count + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "gaussian")
+```
+
+
+```{r}
+file <- "Third_parties_match(period=730 days, 0/00/00, min_num=30).csv"
+file_1 <- "../NMF/lowvalue_highsub(restaurants).csv"
+file_2 <- "../NMF/highvalue_highsub(restaurants).csv"
+file_3 <- "../NMF/lowvalue_lowsub(restaurants).csv"
+file_4 <- "../NMF/highvalue_lowsub(restaurants).csv"
+caliper <- 0.3
+ratio <- 3
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+
+
+# Low Val & High Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_1, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "num_competitors",  "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model1 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+#line
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model2 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model3 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+
+# High Val & High Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_2, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After","review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model4 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+#line
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model5 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model6 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+
+# Low Value & Low Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_3, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model7 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+#line
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model8 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model9 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+# High Value & Low Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_4, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "num_competitors",  "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model10 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model11 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model12 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+
+
+```
+```{r}
+stargazer(model1, model4, model7, model10, title="Subsample Results", column.labels = c("Low Value and High Substitutability","High Value and \\ High Substitutability", "Low Value and \\ Low Substitutability", "High Value and \\ Low Substitutability"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt)
+library(lubridate)
+library(data.table)
+library(stargazer)
+library(dummies)
+restaurants <- read_csv("restaurants(foot_traffic).csv")
+reviews <- read_csv("reviews(foot_traffic).csv")
+```
+```{r}
+file <- "Third_parties_match(period=730 days,min_num=30).csv"
+caliper <- 0.2
+ratio <- 3
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+reviews$overall_complaint <- unlist(1 - (1-reviews$complain_line)*(1-reviews$complain_service))
+
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_party/", file, sep=""))
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+measure <- toString(model_result[1])
+observations <- toString(model_result[2])
+formula <- toString(model_result[3])
+measure_vector <- c(measure_vector, measure)
+observation_vector <- c(observation_vector, observations)
+formula_vector <- c(formula_vector, formula)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  #df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      #df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+no1_vector <- c(no1_vector, nrow(df_regression_1))
+no2_vector <- c(no2_vector, nrow(df_regression_2))
+no3_vector <- c(no3_vector, nrow(df_regression))
+
+
+orig_vars = c("After", "Treated", "Treated_X_After", "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+#line  
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model13 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model14 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#overall
+fmla = as.formula(paste("overall_complaint ~ ", paste(vars, collapse="+")))
+model15 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model16 <- glm(fmla, data = df_regression_1, family = "gaussian")
+```
+```{r}
+df_regression$After_1 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time & x<(time + dyears(x = 2)))))
+df_regression$After_2 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 1)) & x<(time + dyears(x = 2)))))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After1 <- df_regression$After_1 * df_regression$Treated
+df_regression$Treated_X_After2 <- df_regression$After_2 * df_regression$Treated
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+model17 <- glm(complain_line ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + review_count + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "binomial")
+model18 <- glm(complain_service ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + review_count + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "binomial")
+model19 <- glm(ratings ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + review_count + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "gaussian")
+```
+
+
+```{r}
+file <- "Third_parties_match(period=730 days, 0/00/00, min_num=30).csv"
+file_1 <- "../NMF/lowvalue_highsub(restaurants).csv"
+file_2 <- "../NMF/highvalue_highsub(restaurants).csv"
+file_3 <- "../NMF/lowvalue_lowsub(restaurants).csv"
+file_4 <- "../NMF/highvalue_lowsub(restaurants).csv"
+caliper <- 0.1
+ratio <- 3
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+
+
+# Low Val & High Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_1, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "num_competitors", "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model1 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+#line
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model2 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model3 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+
+# High Val & High Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_2, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "num_competitors", "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model4 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+#line
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model5 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model6 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+
+# Low Value & Low Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_3, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "num_competitors", "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model7 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+#line
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model8 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model9 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+# High Value & Low Sub
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_4, sep=""))
+period <- substr(file_1, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file_1, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+orig_vars = c("After", "Treated", "Treated_X_After", "num_competitors",  "review_count", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+vars = c(orig_vars)
+
+
+
+#line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model10 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#service
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model11 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model12 <- glm(fmla, data = df_regression_1, family = "gaussian")
+```
+```{r}
+stargazer(model1, model4, model7, model10, title="Subsample Results", column.labels = c("Low Value and High Substitutability","High Value and \\ High Substitutability", "Low Value and \\ Low Substitutability", "High Value and \\ Low Substitutability"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+```{r}
+stargazer(model3, model6, model9, model12, title="Subsample Results", column.labels = c("Low Value and High Substitutability","High Value and \\ High Substitutability", "Low Value and \\ Low Substitutability", "High Value and \\ Low Substitutability"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+```{r}
+stargazer(model13, model14, model16, title="Main Results", column.labels = c("Pre-process Complaints", "In-process Complaints", "Ratings"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+```{r}
+stargazer(model17, model18, model19, title="Main Results", column.labels = c("Pre-process Complaints", "In-process Complaints", "Ratings"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+
+```{r}
+stargazer(model2, model5, model8, model11, title="Subsample Results", column.labels = c("Low Value and High Substitutability","High Value and \\ High Substitutability", "Low Value and \\ Low Substitutability", "High Value and \\ Low Substitutability"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+```{r}
+stargazer(model13, model14, model16, title="Main Results", column.labels = c("Pre-process Complaints", "In-process Complaints", "Ratings"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+```{r}
+stargazer(model17, model18, model19, title="Main Results", column.labels = c("Pre-process Complaints", "In-process Complaints", "Ratings"),  omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", star.cutoffs = c(.05, .01, .001), font.size = "small" )
+```
+

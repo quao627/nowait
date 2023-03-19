@@ -1,0 +1,277 @@
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt)
+library(lubridate)
+restaurants <- read_csv("All_restaurants_finalized.csv")
+reviews <- read_csv("reviews(processed).csv")
+```
+```{r}
+file_list <- list.files(path="Third_party/")
+caliper_list <- c(0.2, 0.25, 0.3, 0.35, 0.4)
+ratio_max <- 10
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+```
+
+```{r}
+period_vector <- c()
+min_num_vector <- c()
+measure_vector <- c()
+observation_vector <- c()
+formula_vector <- c()
+ratio_vector <- c()
+caliper_vector <- c()
+p1_vector_1 <- c()
+p1_vector_2 <- c()
+p1_vector_3 <- c()
+p2_vector_1 <- c()
+p2_vector_2 <- c()
+p2_vector_3 <- c()
+p3_vector_1 <- c()
+p3_vector_2 <- c()
+p3_vector_3 <- c()
+b1_vector_1 <- c()
+b1_vector_2 <- c()
+b1_vector_3 <- c()
+b2_vector_1 <- c()
+b2_vector_2 <- c()
+b2_vector_3 <- c()
+b3_vector_1 <- c()
+b3_vector_2 <- c()
+b3_vector_3 <- c()
+r1_vector <- c()
+r2_vector <- c()
+r3_vector <- c()
+p4_vector_1 <- c()
+p4_vector_2 <- c()
+p4_vector_3 <- c()
+p5_vector_1 <- c()
+p5_vector_2 <- c()
+p5_vector_3 <- c()
+p6_vector_1 <- c()
+p6_vector_2 <- c()
+p6_vector_3 <- c()
+b4_vector_1 <- c()
+b4_vector_2 <- c()
+b4_vector_3 <- c()
+b5_vector_1 <- c()
+b5_vector_2 <- c()
+b5_vector_3 <- c()
+b6_vector_1 <- c()
+b6_vector_2 <- c()
+b6_vector_3 <- c()
+r4_vector <- c()
+r5_vector <- c()
+r6_vector <- c()
+v1_vector <- c()
+v2_vector <- c()
+v3_vector <- c()
+v4_vector <- c()
+v5_vector <- c()
+v6_vector <- c()
+no1_vector <- c()
+no2_vector <- c()
+no3_vector <- c()
+
+
+#ratio_vector <- c(ratio_vector, ratio)
+#caliper_vector <- c(caliper_vector, caliper)
+
+file <- "Third_party/Third_parties_match(period=730 days,min_num=30).csv"
+caliper <- 0.3
+ratio <- 2
+data <- read_csv(file)
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(period))
+min_num <- substr(file, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match", "City_code"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+measure <- toString(model_result[1])
+observations <- toString(model_result[2])
+formula <- toString(model_result[3])
+measure_vector <- c(measure_vector, measure)
+observation_vector <- c(observation_vector, observations)
+formula_vector <- c(formula_vector, formula)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+dyears(2) & reviews$timestamps>=time-dyears(2)), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+dyears(2) & reviews$timestamps>=time-dyears(2)), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After_1 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time & x<(time + dyears(x = 2)))))
+df_regression$After_2 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 1)) & x<(time + dyears(x = 2)))))
+#df_regression$After_3 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 2)) & x<(time + dyears(x = 3)))))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After1 <- df_regression$After_1 * df_regression$Treated
+df_regression$Treated_X_After2 <- df_regression$After_2 * df_regression$Treated
+#df_regression$Treated_X_After3 <- df_regression$After_3 * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+no1_vector <- c(no1_vector, nrow(df_regression_1))
+no2_vector <- c(no2_vector, nrow(df_regression_2))
+no3_vector <- c(no3_vector, nrow(df_regression))
+  
+if (nrow(df_regression_1)>0){
+  model1 <- glm(complain_line ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_1, family = "binomial")
+  p1_vector_1 <- c(p1_vector_1, coef(summary(model1))['Treated_X_After1','Pr(>|z|)'])
+  b1_vector_1 <- c(b1_vector_1, coef(summary(model1))['Treated_X_After1','Estimate'])
+  p1_vector_2 <- c(p1_vector_2, coef(summary(model1))['Treated_X_After2','Pr(>|z|)'])
+  b1_vector_2 <- c(b1_vector_2, coef(summary(model1))['Treated_X_After2','Estimate'])
+  #p1_vector_3 <- c(p1_vector_3, coef(summary(model1))['Treated_X_After3','Pr(>|z|)'])
+  #b1_vector_3 <- c(b1_vector_3, coef(summary(model1))['Treated_X_After3','Estimate'])
+  r1_vector <- c(r1_vector, with(summary(model1), 1 - deviance/null.deviance))
+  v1_vector <- c(v1_vector, toString(names(model.frame(model1))[2:19][summary(model1)$coeff[-1,4] < 0.05]))
+} else {
+  p1_vector <- c(p1_vector, 0)
+  b1_vector <- c(b1_vector, 0)
+  r1_vector <- c(r1_vector, 0)
+  v1_vector <- c(v1_vector, 0)
+}
+
+model2 <- glm(complain_line ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression_2, family = "binomial")
+model3 <- glm(complain_line ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Sent_length + Subjectivity + Polarity, data = df_regression, family = "binomial")
+
+p2_vector_1 <- c(p2_vector_1, coef(summary(model2))['Treated_X_After1','Pr(>|z|)'])
+b2_vector_1 <- c(b2_vector_1, coef(summary(model2))['Treated_X_After1','Estimate'])
+p2_vector_2 <- c(p2_vector_2, coef(summary(model2))['Treated_X_After2','Pr(>|z|)'])
+b2_vector_2 <- c(b2_vector_2, coef(summary(model2))['Treated_X_After2','Estimate'])
+#p2_vector_3 <- c(p2_vector_3, coef(summary(model2))['Treated_X_After3','Pr(>|z|)'])
+#b2_vector_3 <- c(b2_vector_3, coef(summary(model2))['Treated_X_After3','Estimate'])
+r2_vector <- c(r2_vector, with(summary(model2), 1 - deviance/null.deviance))
+v2_vector <- c(v2_vector, toString(names(model.frame(model2))[2:19][summary(model2)$coeff[-1,4] < 0.05]))
+p3_vector_1 <- c(p3_vector_1, coef(summary(model3))['Treated_X_After1','Pr(>|z|)'])
+b3_vector_1 <- c(b3_vector_1, coef(summary(model3))['Treated_X_After1','Estimate'])
+p3_vector_2 <- c(p3_vector_2, coef(summary(model3))['Treated_X_After2','Pr(>|z|)'])
+b3_vector_2 <- c(b3_vector_2, coef(summary(model3))['Treated_X_After2','Estimate'])
+#p3_vector_3 <- c(p3_vector_3, coef(summary(model3))['Treated_X_After3','Pr(>|z|)'])
+#b3_vector_3 <- c(b3_vector_3, coef(summary(model3))['Treated_X_After3','Estimate'])
+r3_vector <- c(r3_vector, with(summary(model3), 1 - deviance/null.deviance))
+v3_vector <- c(v3_vector, toString(names(model.frame(model3))[2:19][summary(model3)$coeff[-1,4] < 0.05])) 
+ 
+if (nrow(df_regression_1)>0){
+  model4 <- glm(complain_service ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression_1, family = "binomial")
+  p4_vector_1 <- c(p4_vector_1, coef(summary(model4))['Treated_X_After1','Pr(>|z|)'])
+  b4_vector_1 <- c(b4_vector_1, coef(summary(model4))['Treated_X_After1','Estimate'])
+  p4_vector_2 <- c(p4_vector_2, coef(summary(model4))['Treated_X_After2','Pr(>|z|)'])
+  b4_vector_2 <- c(b4_vector_2, coef(summary(model4))['Treated_X_After2','Estimate'])
+  #p4_vector_3 <- c(p4_vector_3, coef(summary(model4))['Treated_X_After3','Pr(>|z|)'])
+  #b4_vector_3 <- c(b4_vector_3, coef(summary(model4))['Treated_X_After3','Estimate'])
+  r4_vector <- c(r4_vector, with(summary(model4), 1 - deviance/null.deviance))
+  v4_vector <- c(v4_vector, toString(names(model.frame(model4))[2:19][summary(model4)$coeff[-1,4] < 0.05]))
+} else {
+  p4_vector <- c(p4_vector, 0)
+  b4_vector <- c(b4_vector, 0)
+  r4_vector <- c(r4_vector, 0)
+  v4_vector <- c(v4_vector, 0)
+}
+
+model5 <- glm(complain_service ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression_2, family = "binomial")
+model6 <- glm(complain_service ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression, family = "binomial")
+p5_vector_1 <- c(p5_vector_1, coef(summary(model5))['Treated_X_After1','Pr(>|z|)'])
+b5_vector_1 <- c(b5_vector_1, coef(summary(model5))['Treated_X_After1','Estimate'])
+p5_vector_2 <- c(p5_vector_2, coef(summary(model5))['Treated_X_After2','Pr(>|z|)'])
+b5_vector_2 <- c(b5_vector_2, coef(summary(model5))['Treated_X_After2','Estimate'])
+#p5_vector_3 <- c(p5_vector_3, coef(summary(model5))['Treated_X_After3','Pr(>|z|)'])
+#b5_vector_3 <- c(b5_vector_3, coef(summary(model5))['Treated_X_After3','Estimate'])
+r5_vector <- c(r5_vector, with(summary(model5), 1 - deviance/null.deviance))
+v5_vector <- c(v5_vector, toString(names(model.frame(model5))[2:19][summary(model5)$coeff[-1,4] < 0.05]))
+p6_vector_1 <- c(p6_vector_1, coef(summary(model6))['Treated_X_After1','Pr(>|z|)'])
+b6_vector_1 <- c(b6_vector_1, coef(summary(model6))['Treated_X_After1','Estimate'])
+p6_vector_2 <- c(p6_vector_2, coef(summary(model6))['Treated_X_After2','Pr(>|z|)'])
+b6_vector_2 <- c(b6_vector_2, coef(summary(model6))['Treated_X_After2','Estimate'])
+#p6_vector_3 <- c(p6_vector_3, coef(summary(model6))['Treated_X_After3','Pr(>|z|)'])
+#b6_vector_3 <- c(b6_vector_3, coef(summary(model6))['Treated_X_After3','Estimate'])
+r6_vector <- c(r6_vector, with(summary(model6), 1 - deviance/null.deviance))
+v6_vector <- c(v6_vector, toString(names(model.frame(model6))[2:19][summary(model6)$coeff[-1,4] < 0.05]))
+
+
+
+result <- data.frame("Period" = period_vector, "Min_num" = min_num_vector, "Measure" = measure_vector, "Observations" = observation_vector, "Formula" = formula_vector,"Ratio" = ratio_vector, "Caliper" = caliper_vector, "P_value(Group1_line_Year1)" = p1_vector_1, "Coefficient(Group1_line_Year1)" = b1_vector_1, "P_value(Group1_line_Year2)" = p1_vector_2, "Coefficient(Group1_line_Year2)" = b1_vector_2, "P_value(Group1_line_Year3)" = p1_vector_3, "Coefficient(Group1_line_Year3)" = b1_vector_3, "Rsquared(Group1_line)" = r1_vector, "P_value(Group2_line_Year1)" = p2_vector_1, "Coefficient(Group2_line_Year1)" = b2_vector_1, "P_value(Group2_line_Year2)" = p2_vector_2, "Coefficient(Group2_line_Year2)" = b2_vector_2, "P_value(Group2_line_Year3)" = p2_vector_3, "Coefficient(Group2_line_Year3)" = b2_vector_3,  "Rsquared(Group2_line)" = r2_vector, "P_value(Group3_line_Year1)" = p3_vector_1, "Coefficient(Group3_line_Year1)" = b3_vector_1, "P_value(Group1_line_Year2)" = p3_vector_2, "Coefficient(Group3_line_Year2)" = b3_vector_2, "P_value(Group1_line_Year3)" = p3_vector_3, "Coefficient(Group3_line_Year3)" = b3_vector_3, "Rsquared(Group3_line)" = r3_vector,"P_value(Group1_service_Year1)" = p4_vector_1,"Coefficient(Group1_service_Year1)" = b4_vector_1, "P_value(Group1_service_Year2)" = p4_vector_2,"Coefficient(Group1_service_Year2)" = b4_vector_2, "P_value(Group1_service_Year3)" = p4_vector_3,"Coefficient(Group1_service_Year3)" = b4_vector_3, "Rsquared(Group1_service)" = r4_vector, 
+"P_value(Group2_service_Year1)" = p5_vector_1,"Coefficient(Group2_service_Year1)" = b5_vector_1, "P_value(Group2_service_Year2)" = p5_vector_2,"Coefficient(Group2_service_Year2)" = b5_vector_2, "P_value(Group2_service_Year3)" = p5_vector_3,"Coefficient(Group2_service_Year3)" = b5_vector_3, "Rsquared(Group2_service)" = r5_vector, 
+"P_value(Group3_service_Year1)" = p6_vector_1,"Coefficient(Group3_service_Year1)" = b6_vector_1, "P_value(Group3_service_Year2)" = p6_vector_2,"Coefficient(Group3_service_Year2)" = b6_vector_2, "P_value(Group3_service_Year3)" = p6_vector_3,"Coefficient(Group3_service_Year3)" = b6_vector_3, "Rsquared(Group3_service)" = r6_vector, "No_observation_group1"=no1_vector,
+"No_observation_group2"=no2_vector, "No_observation_group3"=no3_vector, "Variables_group1_line" = v1_vector, "Variables_group2_line" = v2_vector, "Variables_group3_line" = v3_vector, "Variables_group1_service" = v4_vector, "Variables_group2_service" = v5_vector, "Variables_group3_service" = v6_vector)
+
+write_csv(result, "/Users/aoqu/Desktop/NoWait_Research/PSM+DID/2years_line&service(regression).csv")
+
+```
+
+
+```{r}
+result <- data.frame("Period" = period_vector, "Min_num" = min_num_vector, "Measure" = measure_vector, "Observations" = observation_vector, "Formula" = formula_vector,"Ratio" = ratio_vector, "Caliper" = caliper_vector, "P_value(Group1_line_Year1)" = p1_vector_1, "Coefficient(Group1_line_Year1)" = b1_vector_1, "P_value(Group1_line_Year2)" = p1_vector_2, "Coefficient(Group1_line_Year2)" = b1_vector_2,  "Rsquared(Group1_line)" = r1_vector, "P_value(Group2_line_Year1)" = p2_vector_1, "Coefficient(Group2_line_Year1)" = b2_vector_1, "P_value(Group2_line_Year2)" = p2_vector_2, "Coefficient(Group2_line_Year2)" = b2_vector_2,   "Rsquared(Group2_line)" = r2_vector, "P_value(Group3_line_Year1)" = p3_vector_1, "Coefficient(Group3_line_Year1)" = b3_vector_1, "P_value(Group1_line_Year2)" = p3_vector_2, "Coefficient(Group3_line_Year2)" = b3_vector_2,  "Rsquared(Group3_line)" = r3_vector,"P_value(Group1_service_Year1)" = p4_vector_1,"Coefficient(Group1_service_Year1)" = b4_vector_1, "P_value(Group1_service_Year2)" = p4_vector_2,"Coefficient(Group1_service_Year2)" = b4_vector_2,  "Rsquared(Group1_service)" = r4_vector, 
+"P_value(Group2_service_Year1)" = p5_vector_1,"Coefficient(Group2_service_Year1)" = b5_vector_1, "P_value(Group2_service_Year2)" = p5_vector_2,"Coefficient(Group2_service_Year2)" = b5_vector_2,  "Rsquared(Group2_service)" = r5_vector, 
+"P_value(Group3_service_Year1)" = p6_vector_1,"Coefficient(Group3_service_Year1)" = b6_vector_1, "P_value(Group3_service_Year2)" = p6_vector_2,"Coefficient(Group3_service_Year2)" = b6_vector_2,  "Rsquared(Group3_service)" = r6_vector, "No_observation_group1"=no1_vector,
+"No_observation_group2"=no2_vector, "No_observation_group3"=no3_vector, "Variables_group1_line" = v1_vector, "Variables_group2_line" = v2_vector, "Variables_group3_line" = v3_vector, "Variables_group1_service" = v4_vector, "Variables_group2_service" = v5_vector, "Variables_group3_service" = v6_vector)
+
+write_csv(result, "/Users/aoqu/Desktop/NoWait_Research/PSM+DID/2years_line&service(regression).csv")
+```
+
+```{r}
+m.out <- matchit(Treated ~Review_count_before + Rating_before, data = new_data, ratio=5, discard="both", method="nearest", exact=c("Match", "City_code"), caliper=0.25)
+summary(m.out)
+```
+```{r}
+plot(m.out, type="hist")
+```
+```{r}
+matches = m.out$match.matrix
+matches_df = data.frame(cbind(row.names(matches), matches))
+```
+
+```{r}
+write_csv(match.data(m.out), "/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_parties_result.csv")
+write_csv(matches_df, "/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Matched_pairs.csv")
+```
+```{r}
+review = read_csv("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/data_did.csv")
+```
+```{r}
+result <- data.frame("Period" = period_vector, "Min_num" = min_num_vector, "Measure" = measure_vector, "Observations" = observation_vector, "Formula" = formula_vector,"Ratio" = ratio_vector, "Caliper" = caliper_vector, "P_value_Group1_line" = p1_vector,"Coefficient_Group1_line" = b1_vector, "Rsquared_Group1_line" = r1_vector,"P_value_Group2_line" = p2_vector, "Coefficient_Group2_line" = b2_vector,"Rsquared_Group2_line" = r2_vector, "P_value_Group3_line" =p3_vector,"Coefficient_Group3_line" = b3_vector, "Rsquared_Group3_line" =r3_vector,"P_value_Group1_service" = p4_vector,"Coefficient_Group1_service" = b4_vector,"Rsquared_Group1_service" = r4_vector, "P_value_Group2_service" = p5_vector,"Coefficient_Group2_service" = b5_vector, "Rsquared_Group2_service" = r5_vector,"P_value_Group3_service" = p6_vector, "Coefficient_Group3_service" = b6_vector,"Rsquared_Group3_service" = r6_vector)
+```
+```{r}
+glm.fit <- glm(complain_line ~ ratings + nfriends, data = review, family = binomial)
+summary(glm.fit)
+```
+
+
+
+
+
+
+
+```
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file). 
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+

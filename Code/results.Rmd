@@ -1,0 +1,351 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+
+
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt)
+library(lubridate)
+library(data.table)
+library(stargazer)
+library(dummies)
+restaurants <- read_csv("..//All_restaurants_finalized.csv")
+reviews <- read_csv("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/reviews(NMF).csv")
+```
+```{r}
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+print('Number of total reviews (Treated), ')
+print(NROW(reviews[which((reviews$Treated_Yelp=='Y') & (reviews$Name %in% first_time_group)), ]))
+print('Number of total reviews (Control), ')
+print(NROW(reviews[which((reviews$Control=='Y')), ]))
+
+```
+
+```{r}
+file <- "Third_parties_match(period=730 days,min_num=30).csv"
+caliper <- 0.3
+ratio <- 3
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+reviews$overall_complaint <- unlist(1 - (1-reviews$complain_line)*(1-reviews$complain_service))
+
+
+
+period_vector <- c()
+min_num_vector <- c()
+measure_vector <- c()
+observation_vector <- c()
+formula_vector <- c()
+ratio_vector <- c()
+caliper_vector <- c()
+p1_vector <- c()
+p2_vector <- c()
+p3_vector <- c()
+b1_vector <- c()
+b2_vector <- c()
+b3_vector <- c()
+r1_vector <- c()
+r2_vector <- c()
+r3_vector <- c()
+p4_vector <- c()
+p5_vector <- c()
+p6_vector <- c()
+b4_vector <- c()
+b5_vector <- c()
+b6_vector <- c()
+r4_vector <- c()
+r5_vector <- c()
+r6_vector <- c()
+no1_vector <- c()
+no2_vector <- c()
+no3_vector <- c()
+
+
+ratio_vector <- c(ratio_vector, ratio)
+caliper_vector <- c(caliper_vector, caliper)
+
+# Baseline Model
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_party/", file, sep=""))
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(730))
+min_num <- substr(file, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match", "City_code"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+measure <- toString(model_result[1])
+observations <- toString(model_result[2])
+formula <- toString(model_result[3])
+measure_vector <- c(measure_vector, measure)
+observation_vector <- c(observation_vector, observations)
+formula_vector <- c(formula_vector, formula)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  #df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      #df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+no1_vector <- c(no1_vector, nrow(df_regression_1))
+no2_vector <- c(no2_vector, nrow(df_regression_2))
+no3_vector <- c(no3_vector, nrow(df_regression))
+
+# Print Statistics
+df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
+print("Main Model:")
+print(sum(df_regression_1$Treated))
+print(length(df_regression_1$Treated) - sum(df_regression_1$Treated))
+print("Control:")
+print(summary(m.out)$nn["Matched", "Control"])
+print("Treated:")
+print(summary(m.out)$nn["Matched", "Treated"])
+print("Number of chains(Treated): ")
+print(length(unique(df_regression_1[which(df_regression_1$Treated == 1), ]$Name)))
+print("Number of chains(Control): ")
+print(length(unique(df_regression_1[which(df_regression_1$Treated == 0), ]$Name)))
+
+print('Number of reviews(Treated): ')
+print(NROW(df_regression_1[which(df_regression_1$Treated==1), ]))
+print('Number of reviews(Control): ')
+print(NROW(df_regression_1[which(df_regression_1$Treated==0), ]))
+
+#One Hot Encoding
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "'", "")}))
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "&", "")}))
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
+orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+new_vars = new_vars[1:length(new_vars)-1]
+vars = c(orig_vars, new_vars)
+
+
+#line  
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+if (nrow(df_regression_1)>0){
+  model1 <- glm(fmla, data = df_regression_1, family = "binomial")
+  p1_vector <- c(p1_vector, coef(summary(model1))['Treated_X_After','Pr(>|z|)'])
+  b1_vector <- c(b1_vector, coef(summary(model1))['Treated_X_After','Estimate'])
+  r1_vector <- c(r1_vector, with(summary(model1), 1 - deviance/null.deviance))
+} else {
+  p1_vector <- c(p1_vector, 0)
+  b1_vector <- c(b1_vector, 0)
+  r1_vector <- c(r1_vector, 0)
+}
+
+#service
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model2 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#overall
+fmla = as.formula(paste("overall_complaint ~ ", paste(vars, collapse="+")))
+model3 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model4 <- glm(fmla, data = df_regression_1, family = "gaussian")
+
+print("Control:")
+print(summary(m.out)$nn["Matched", "Control"])
+print("Treated:")
+print(summary(m.out)$nn["Matched", "Treated"])
+print("Number of chains(Treated): ")
+print(length(unique(df_regression_1[which(df_regression_1$Treated == 1), ]$Name)))
+print("Number of chains(Control): ")
+print(length(unique(df_regression_1[which(df_regression_1$Treated == 0), ]$Name)))
+
+#Second Exposure
+model5 <- glm(complain_line ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere, data = df_regression_2, family = "binomial")
+model6 <- glm(complain_service ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere, data = df_regression_2, family = "binomial")
+model7 <- glm(overall_complaint ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere, data = df_regression_2, family = "binomial")
+model8 <- glm(ratings ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere, data = df_regression_2, family = "gaussian")
+
+
+# Year Effects Line & Service
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_party/", file, sep=""))
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(period))
+min_num <- substr(file, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match", "City_code"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+measure <- toString(model_result[1])
+observations <- toString(model_result[2])
+formula <- toString(model_result[3])
+measure_vector <- c(measure_vector, measure)
+observation_vector <- c(observation_vector, observations)
+formula_vector <- c(formula_vector, formula)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[matches_df[row, 1], "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+dyears(2) & reviews$timestamps>=time-dyears(2)), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in matches_df[row, 2:(ratio+1)]){
+    if (is.na(index)){
+      next
+    } else {
+      ID_control <- data[as.numeric(index), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+dyears(2) & reviews$timestamps>=time-dyears(2)), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After_1 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time & x<(time + dyears(x = 2)))))
+df_regression$After_2 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 1)) & x<(time + dyears(x = 2)))))
+#df_regression$After_3 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 2)) & x<(time + dyears(x = 3)))))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After1 <- df_regression$After_1 * df_regression$Treated
+df_regression$Treated_X_After2 <- df_regression$After_2 * df_regression$Treated
+#df_regression$Treated_X_After3 <- df_regression$After_3 * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+no1_vector <- c(no1_vector, nrow(df_regression_1))
+no2_vector <- c(no2_vector, nrow(df_regression_2))
+no3_vector <- c(no3_vector, nrow(df_regression))
+
+print("Year Effects:")
+print(sum(df_regression_1$Treated))
+print(length(df_regression_1$Treated) - sum(df_regression_1$Treated))
+print("Control:")
+print(summary(m.out)$nn["Matched", "Control"])
+print("Treated:")
+print(summary(m.out)$nn["Matched", "Treated"])
+print("Number of chains(Treated): ")
+print(length(unique(df_regression_1[which(df_regression_1$Treated == 1), ]$Name)))
+print("Number of chains(Control): ")
+print(length(unique(df_regression_1[which(df_regression_1$Treated == 0), ]$Name)))
+
+#One Hot Encoding
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "'", "")}))
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "&", "")}))
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
+df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
+orig_vars = c("After_1", "After_2", "Treated", "Treated_X_After1", "Treated_X_After2", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+vars = c(orig_vars, new_vars)
+
+df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
+  
+# Line
+fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
+model9 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+# Service
+fmla = as.formula(paste("complain_service ~ ", paste(vars, collapse="+")))
+model10 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+# overall complaint
+fmla = as.formula(paste("overall_complaint ~ ", paste(vars, collapse="+")))
+model11 <- glm(fmla, data = df_regression_1, family = "binomial")
+
+#ratings
+fmla = as.formula(paste("ratings ~ ", paste(vars, collapse="+")))
+model12 <- glm(fmla, data = df_regression_1, family = "gaussian")
+```
+dep.var.labels=c("Low Perceived Value & High Substitutability","High Perceived Value & High Substitutability", "Low Perceived Value & Low Substitutability", "High Perceived Value & Low Substitutability")
+```{r}
+stargazer(model1, model2, model4, title="Main Results", column.labels = c("Line (Primary)","Service (Primary)", "Overall rating"),  omit.stat=c("LL","ser","f"), star.cutoffs = c(.05, .01, .001), no.space = TRUE, column.sep.width = "1pt", font.size = "small" )
+```
+```{r}
+stargazer( model5, model6, model7,model8, title="Secondary Effects", column.labels= c("Line (Secondary)","Service (Secondary)", "Overall Complaint", "Overall rating"), omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", font.size = "small" )
+```
+
+
+```{r}
+stargazer( model9, model10, model12, title="Year Effects", column.labels= c("Line (Year Effects)","Service (Year Effects)", "Overall rating"), omit.stat=c("LL","ser","f"), no.space = TRUE, column.sep.width = "1pt", font.size = "small" )
+```
+```{r}
+library(ggplot2)
+library(reshape2)
+mydata <- df_regression_1[, vars]
+cormat <- round(cor(mydata),2)
+get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+}
+upper_tri <- get_upper_tri(cormat)
+melted_cormat <- melt(upper_tri, na.rm = TRUE)
+melted_cormat <- melted_cormat[which(melted_cormat$value > 0.3),]
+
+# Heatmap
+ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+ geom_tile(color = "white")+
+ scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+   midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Pearson\nCorrelation") +
+  theme_minimal()+ # minimal theme
+ theme(axis.text.x = element_text(angle = 90, vjust = 1, 
+    size = 8, hjust = 1))+
+ coord_fixed()
+print(ggheatmap)
+```
+```{r}
+p <- bal.plot(m.out, var.name = "distance", which = "both",
+         type = "histogram", mirror = TRUE, sample.names=c('Unmatched', 'Matched'))
+p + ggtitle('Propensity Score Matching Results') + xlab('Propensity Score') + scale_fill_manual(name = "Group", labels = c("Control", "Treatment"), values = c("#E6E6FA", "#9597f0")) + theme(
+  plot.title = element_text(size = 20, hjust = 0.5),
+  text = element_text(size=16)
+)
+```
+```{r}
+write_csv(df_regression_1, "/Users/aoqu/Desktop/NoWait_Research/Robustness/sample_data.csv")
+```
+
+
+
+

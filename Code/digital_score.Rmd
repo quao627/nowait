@@ -1,0 +1,167 @@
+---
+title: "Digital_score"
+output: html_document
+---
+
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt)
+library(lubridate)
+library(data.table)
+library(stargazer)
+restaurants <- read_csv("/Users/aoqu/Desktop/NoWait_Research/Robustness/restaurants(processed).csv")
+reviews <- read_csv("/Users/aoqu/Desktop/NoWait_Research/Robustness/reviews(digital_score).csv")
+```
+
+```{r}
+file <- "match(digital_score).csv"
+caliper <- 0.3
+ratio <- 2
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+
+period_vector <- c()
+min_num_vector <- c()
+measure_vector <- c()
+observation_vector <- c()
+formula_vector <- c()
+ratio_vector <- c()
+caliper_vector <- c()
+p1_vector <- c()
+p2_vector <- c()
+p3_vector <- c()
+b1_vector <- c()
+b2_vector <- c()
+b3_vector <- c()
+r1_vector <- c()
+r2_vector <- c()
+r3_vector <- c()
+p4_vector <- c()
+p5_vector <- c()
+p6_vector <- c()
+b4_vector <- c()
+b5_vector <- c()
+b6_vector <- c()
+r4_vector <- c()
+r5_vector <- c()
+r6_vector <- c()
+no1_vector <- c()
+no2_vector <- c()
+no3_vector <- c()
+
+
+ratio_vector <- c(ratio_vector, ratio)
+caliper_vector <- c(caliper_vector, caliper)
+
+data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/Robustness/", file, sep=""))
+#slack_cols <- c("2015_sale", "2016_sale", "2017_sale", "2018_sale", #"2019_sale")
+#data <- data %>% drop_na(any_of(slack_cols))
+period <- 730
+period <- ddays(as.numeric(period))
+min_num <- substr(file, 55, 56)
+period_vector <- c(period_vector, period)
+min_num_vector <- c(min_num_vector, min_num)
+
+new_data <- select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match", "City_code"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+measure <- toString(model_result[1])
+observations <- toString(model_result[2])
+formula <- toString(model_result[3])
+measure_vector <- c(measure_vector, measure)
+observation_vector <- c(observation_vector, observations)
+formula_vector <- c(formula_vector, formula)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[row, "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in 1:ratio){
+    if (is.na(matches[row, index])){
+      next
+    } else {
+      ID_control <- data[as.numeric(matches[row, index]), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control) & reviews$timestamps<=time+period & reviews$timestamps>=time-period), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression[is.na(df_regression)] <- 0
+df_regression$After <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time)))
+df_regression$Treated <- unlist(lapply(df_regression$Control, function(x) as.numeric(x=="N")))
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$elite <- unlist(lapply(df_regression$elite, function(x) as.numeric(x=="Y")))
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+no1_vector <- c(no1_vector, nrow(df_regression_1))
+no2_vector <- c(no2_vector, nrow(df_regression_2))
+no3_vector <- c(no3_vector, nrow(df_regression))
+  
+if (nrow(df_regression_1)>0){
+  model1 <- glm(complain_line ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere + digital_score, data = df_regression_1, family = "binomial")
+  p1_vector <- c(p1_vector, coef(summary(model1))['Treated_X_After','Pr(>|z|)'])
+  b1_vector <- c(b1_vector, coef(summary(model1))['Treated_X_After','Estimate'])
+  r1_vector <- c(r1_vector, with(summary(model1), 1 - deviance/null.deviance))
+} else {
+  p1_vector <- c(p1_vector, 0)
+  b1_vector <- c(b1_vector, 0)
+  r1_vector <- c(r1_vector, 0)
+}
+
+model2 <- glm(complain_line ~ After + Treated + Treated_X_After + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression_2, family = "binomial")
+model3 <- glm(complain_line ~ After + Treated + Treated_X_After + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression, family = "binomial")
+
+p2_vector <- c(p2_vector, coef(summary(model2))['Treated_X_After','Pr(>|z|)'])
+b2_vector <- c(b2_vector, coef(summary(model2))['Treated_X_After','Estimate'])
+r2_vector <- c(r2_vector, with(summary(model2), 1 - deviance/null.deviance))
+p3_vector <- c(p3_vector, coef(summary(model3))['Treated_X_After','Pr(>|z|)'])
+b3_vector <- c(b3_vector, coef(summary(model3))['Treated_X_After','Estimate'])
+r3_vector <- c(r3_vector, with(summary(model3), 1 - deviance/null.deviance))
+  
+if (nrow(df_regression_1)>0){
+  model4 <- glm(complain_service ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere + digital_score, data = df_regression_1, family = "binomial")
+  p4_vector <- c(p4_vector, coef(summary(model4))['Treated_X_After','Pr(>|z|)'])
+  b4_vector <- c(b4_vector, coef(summary(model4))['Treated_X_After','Estimate'])
+  r4_vector <- c(r4_vector, with(summary(model4), 1 - deviance/null.deviance))
+} else {
+  p4_vector <- c(p4_vector, 0)
+  b4_vector <- c(b4_vector, 0)
+  r4_vector <- c(r4_vector, 0)
+}
+
+model5 <- glm(complain_service ~ After + Treated + Treated_X_After + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression_2, family = "binomial")
+model6 <- glm(complain_service ~ After + Treated + Treated_X_After + ratings + nfriends + useful + funny + cool + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Polarity + Subjectivity + Sent_length, data = df_regression, family = "binomial")
+p5_vector <- c(p5_vector, coef(summary(model5))['Treated_X_After','Pr(>|z|)'])
+b5_vector <- c(b5_vector, coef(summary(model5))['Treated_X_After','Estimate'])
+r5_vector <- c(r5_vector, with(summary(model5), 1 - deviance/null.deviance))
+p6_vector <- c(p6_vector, coef(summary(model6))['Treated_X_After','Pr(>|z|)'])
+b6_vector <- c(b6_vector, coef(summary(model6))['Treated_X_After','Estimate'])
+r6_vector <- c(r6_vector, with(summary(model6), 1 - deviance/null.deviance))
+
+
+model7 <- glm(ratings ~ After + Treated + Treated_X_After + nfriends + useful + elite + nphotos_review + checkin + Fog_index + Avg_word_length + Subjectivity + Sent_length + Food_quality + Atmosphere + digital_score, data = df_regression_1, family = "gaussian")
+
+```
+
+
+```{r}
+stargazer(model7, title="Regression Results(Digital Score)",
+column.labels=c("Service"),
+keep.stat=c("aic", "n"), ci=FALSE, star.cutoffs = c(.05, .01, .001), single.row=TRUE)
+```
+
+
+

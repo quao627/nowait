@@ -1,0 +1,119 @@
+```{r}
+library(MatchIt)
+library(tidyverse)
+library(cobalt)
+library(lubridate)
+library(data.table)
+library(stargazer)
+restaurants <- read_csv("restaurants(foot_traffic).csv")
+reviews <- read_csv("review_count.csv")
+```
+```{r}
+file <- "Third_parties_match(period=730 days,min_num=30).csv"
+caliper <- 0.1
+ratio <- 2
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+data <- read_csv(file)
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(period))
+min_num <- substr(file, 55, 56)
+
+new_data <- select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match", "City_code"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[row, "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated)), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in 1:ratio){
+    if (is.na(matches[row, index])){
+      next
+    } else {
+      ID_control <- data[as.numeric(matches[row, index]), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control)), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+model1 <- glm(review_count ~ After + Treated + Treated_X_After + Takes_Reservations+Offers_Takeout+Offers_Delivery+Outdoor_Seating+Has_TV+Has_Pool_Table+Music+WiFi+Beer_Gardens+Venues_Event_Spaces+Gastropubs+Wine_Bars+TexMex+Arcades+Hawaiian+Chicken_Wings+GlutenFree+Music_Venues+Chicken_Shop+CajunCreole+Cocktail_Bars+Diners+Bagels+Themed_Cafes+Wineries+Vegan+Brazilian+Cafes+Latin_American+Comfort_Food+American_Traditional_+Barbeque+Bars+American_New_+Mexican+Breakfast_Brunch+Beer+Wine_Tasting_Room+Steakhouses+Italian+Tacos+Beer_Bar+Salad+Sports_Bars+Pizza+TapasSmall_Plates+Southern+Pubs+Lounges+French+Caterers+Burgers+Seafood+Vegetarian+Sandwiches+Wine_Spirits+Desserts+Sushi_Bars+Parking_status, data = df_regression_1, family = "gaussian")
+
+```
+```{r}
+summary(model1)
+```
+```{r}
+file_1 <- "../NMF/lowvalue_highsub(restaurants).csv"
+file_2 <- "../NMF/highvalue_highsub(restaurants).csv"
+file_3 <- "../NMF/lowvalue_lowsub(restaurants).csv"
+file_4 <- "../NMF/highvalue_lowsub(restaurants).csv"
+```
+```{r}
+caliper=0.1
+ratio <- 2
+time <- ymd("2017-2-28")
+first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
+data <- read_csv(file)
+period <- substr(file, 28, 30)
+period <- ddays(as.numeric(period))
+min_num <- substr(file, 55, 56)
+
+new_data <- select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
+new_data <- as.data.frame(na.omit(new_data))
+set.seed(100)
+m.out <- matchit(Treated ~ Review_count_before + Rating_before, data = new_data, ratio=ratio, discard="both", method="nearest", exact=c("Match", "City"), caliper=caliper)
+model_result <- bal.tab(m.out, s.d.denom="pooled", disp.v.ratio=TRUE)
+
+matches <- m.out$match.matrix
+matches_df <- data.frame(cbind(row.names(matches), matches))
+df_regression <- data.frame()
+for (row in 1:nrow(matches_df)){
+  if (is.na(matches_df[row, 2])){
+    next
+  }
+  ID_treated <- data[row, "ID"]
+  name <- restaurants[which(restaurants$ID==toString(ID_treated)), "Name"]
+  df_treated <- reviews[which(reviews$ID==toString(ID_treated)), ]
+  df_treated[, paste("Pair", toString(row), sep="")] <- 1
+  for (index in 1:ratio){
+    if (is.na(matches[row, index])){
+      next
+    } else {
+      ID_control <- data[as.numeric(matches[row, index]), "ID"]
+      df_control <- reviews[which(reviews$ID==toString(ID_control)), ]
+      df_control[, paste("Pair", toString(row), sep="")] <- 1
+      df_treated <- rbind(setDT(df_treated), setDT(df_control), fill=TRUE)
+      df_treated[, "First_time"] <- as.numeric(name %in% first_time_group)
+      df_regression <- rbind(setDT(df_regression), setDT(df_treated), fill=TRUE)
+    }
+  }
+}
+df_regression$Treated_X_After <- df_regression$After * df_regression$Treated
+df_regression$After_1 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>time & x<(time + dyears(x = 2)))))
+df_regression$After_2 <- unlist(lapply(df_regression$timestamps, function(x) as.numeric(x>(time + dyears(x = 1)) & x<(time + dyears(x = 2)))))
+df_regression$Treated_X_After1 <- df_regression$After_1 * df_regression$Treated
+df_regression$Treated_X_After2 <- df_regression$After_2 * df_regression$Treated
+df_regression_1 <- df_regression[which(df_regression$First_time==1),]
+df_regression_2 <- df_regression[which(df_regression$First_time==0),]
+
+model1 <- glm(review_count ~ After_1 + After_2 + Treated + Treated_X_After1 + Treated_X_After2 + Takes_Reservations+Offers_Takeout+Offers_Delivery+Outdoor_Seating+Has_TV+Has_Pool_Table+Music+WiFi+Beer_Gardens+Venues_Event_Spaces+Gastropubs+Wine_Bars+TexMex+Arcades+Hawaiian+Chicken_Wings+GlutenFree+Music_Venues+Chicken_Shop+CajunCreole+Cocktail_Bars+Diners+Bagels+Themed_Cafes+Wineries+Vegan+Brazilian+Cafes+Latin_American+Comfort_Food+American_Traditional_+Barbeque+Bars+American_New_+Mexican+Breakfast_Brunch+Beer+Wine_Tasting_Room+Steakhouses+Italian+Tacos+Beer_Bar+Salad+Sports_Bars+Pizza+TapasSmall_Plates+Southern+Pubs+Lounges+French+Caterers+Burgers+Seafood+Vegetarian+Sandwiches+Wine_Spirits+Desserts+Sushi_Bars+Parking_status, data = df_regression_1, family = "gaussian")
+
+```
+
