@@ -17,8 +17,8 @@ library(lubridate)
 library(data.table)
 library(stargazer)
 library(dummies)
-restaurants <- read_csv("..//All_restaurants_finalized.csv")
-reviews <- read_csv("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/reviews(NMF).csv")
+restaurants <- read_csv("../Data/All_restaurants_finalized.csv")
+reviews <- read_csv("../Data/reviews.csv")
 ```
 ```{r}
 first_time_group <- c("Applebee's", "O'Charley's", "Rainforest Cafe", "Cheddar's Scratch Kitchen", "Bubba Gump Shrimp", "Saltgrass Steak House", "Dave & Buster's", "California Pizza Kitchen")
@@ -30,7 +30,7 @@ print(NROW(reviews[which((reviews$Control=='Y')), ]))
 ```
 
 ```{r}
-file <- "Third_parties_match(period=730 days,min_num=30).csv"
+file <- "psm_data.csv"
 caliper <- 0.3
 ratio <- 3
 time <- ymd("2017-2-28")
@@ -73,7 +73,7 @@ ratio_vector <- c(ratio_vector, ratio)
 caliper_vector <- c(caliper_vector, caliper)
 
 # Baseline Model
-data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_party/", file, sep=""))
+data <- read_csv(paste("../Data/", file, sep=""))
 period <- substr(file, 28, 30)
 period <- ddays(as.numeric(730))
 min_num <- substr(file, 55, 56)
