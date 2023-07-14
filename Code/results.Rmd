@@ -16,7 +16,7 @@ library(cobalt)
 library(lubridate)
 library(data.table)
 library(stargazer)
-library(dummies)
+# library(dummies)
 restaurants <- read_csv("../Data/All_restaurants_finalized.csv")
 reviews <- read_csv("../Data/reviews.csv")
 ```
@@ -80,6 +80,10 @@ min_num <- substr(file, 55, 56)
 period_vector <- c(period_vector, period)
 min_num_vector <- c(min_num_vector, min_num)
 
+
+data$Treated <- ifelse(data$Treated_Yelp == "Y", 1, 0)
+
+
 new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
 new_data <- as.data.frame(na.omit(new_data))
 set.seed(100)
@@ -127,24 +131,7 @@ no1_vector <- c(no1_vector, nrow(df_regression_1))
 no2_vector <- c(no2_vector, nrow(df_regression_2))
 no3_vector <- c(no3_vector, nrow(df_regression))
 
-# Print Statistics
-df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
-print("Main Model:")
-print(sum(df_regression_1$Treated))
-print(length(df_regression_1$Treated) - sum(df_regression_1$Treated))
-print("Control:")
-print(summary(m.out)$nn["Matched", "Control"])
-print("Treated:")
-print(summary(m.out)$nn["Matched", "Treated"])
-print("Number of chains(Treated): ")
-print(length(unique(df_regression_1[which(df_regression_1$Treated == 1), ]$Name)))
-print("Number of chains(Control): ")
-print(length(unique(df_regression_1[which(df_regression_1$Treated == 0), ]$Name)))
 
-print('Number of reviews(Treated): ')
-print(NROW(df_regression_1[which(df_regression_1$Treated==1), ]))
-print('Number of reviews(Control): ')
-print(NROW(df_regression_1[which(df_regression_1$Treated==0), ]))
 
 #One Hot Encoding
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "'", "")}))
@@ -152,10 +139,10 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
 orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
-new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
-new_vars = new_vars[1:length(new_vars)-1]
-vars = c(orig_vars, new_vars)
-
+# new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+# new_vars = new_vars[1:length(new_vars)-1]
+# vars = c(orig_vars, new_vars)
+vars = orig_vars
 
 #line  
 fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
@@ -199,7 +186,7 @@ model8 <- glm(ratings ~ After + Treated + Treated_X_After + nfriends + useful + 
 
 
 # Year Effects Line & Service
-data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/PSM+DID/Third_party/", file, sep=""))
+data <- read_csv(paste("../Data/", file, sep=""))
 period <- substr(file, 28, 30)
 period <- ddays(as.numeric(period))
 min_num <- substr(file, 55, 56)
@@ -276,8 +263,9 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
 orig_vars = c("After_1", "After_2", "Treated", "Treated_X_After1", "Treated_X_After2", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
-new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
-vars = c(orig_vars, new_vars)
+#new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+#vars = c(orig_vars, new_vars)
+vars = orig_vars
 
 df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
   
