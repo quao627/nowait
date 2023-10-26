@@ -5,8 +5,9 @@ library(cobalt)
 library(lubridate)
 library(data.table)
 library(stargazer)
-restaurants <- read_csv("/Users/aoqu/Desktop/NoWait_Research/All_restaurants_finalized.csv")
-reviews <- read_csv("/Users/aoqu/Desktop/NoWait_Research/NMF/reviews(NMF).csv")
+# library(dummies)
+restaurants <- read_csv("../Data/All_restaurants_finalized.csv")
+reviews <- read_csv("../Data/reviews(new).csv")
 ```
 ```{r}
 file <- "Third_parties_match(period=730 days, 0/00/00, min_num=30).csv"
@@ -53,12 +54,14 @@ ratio_vector <- c(ratio_vector, ratio)
 caliper_vector <- c(caliper_vector, caliper)
 
 # Low value & High sub
-data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_1, sep=""))
+data <- read_csv(paste("../Data/", file_1, sep=""))
 period <- substr(file_1, 28, 30)
 period <- ddays(as.numeric(730))
 min_num <- substr(file_1, 55, 56)
 period_vector <- c(period_vector, period)
 min_num_vector <- c(min_num_vector, min_num)
+
+data$Treated <- ifelse(data$Treated_Yelp == "Y", 1, 0)
 
 new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
 new_data <- as.data.frame(na.omit(new_data))
@@ -125,10 +128,11 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
 orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
-new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
-vars = c(orig_vars, new_vars)
+# new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+# vars = c(orig_vars, new_vars)
+vars = orig_vars
 
-df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
+# df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
 
 #line
 fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
@@ -163,13 +167,14 @@ if (nrow(df_regression_1)>0){
 
 
 # High Value & High Sub
-data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_2, sep=""))
+data <- read_csv(paste("../Data/", file_2, sep=""))
 period <- substr(file, 28, 30)
 period <- ddays(as.numeric(730))
 min_num <- substr(file, 55, 56)
 period_vector <- c(period_vector, period)
 min_num_vector <- c(min_num_vector, min_num)
 
+data$Treated <- ifelse(data$Treated_Yelp == "Y", 1, 0)
 new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
 new_data <- as.data.frame(na.omit(new_data))
 set.seed(100)
@@ -235,10 +240,11 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
 orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
-new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
-vars = c(orig_vars, new_vars)
+# new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+# vars = c(orig_vars, new_vars)
+vars = orig_vars
 
-df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
+# df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
 
 #line
 fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
@@ -273,12 +279,13 @@ if (nrow(df_regression_1)>0){
 
 
 # Low Value & Low Sub
-data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_3, sep=""))
+data <- read_csv(paste("../Data/", file_3, sep=""))
 period <- substr(file, 28, 30)
 period <- ddays(as.numeric(730))
 min_num <- substr(file, 55, 56)
 period_vector <- c(period_vector, period)
 min_num_vector <- c(min_num_vector, min_num)
+data$Treated <- ifelse(data$Treated_Yelp == "Y", 1, 0)
 
 new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
 new_data <- as.data.frame(na.omit(new_data))
@@ -345,10 +352,11 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
 orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
-new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
-vars = c(orig_vars, new_vars)
+# new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+# vars = c(orig_vars, new_vars)
+vars = orig_vars
 
-df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
+# df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
 
 #line
 fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))
@@ -383,12 +391,13 @@ if (nrow(df_regression_1)>0){
 
 
 #High Value & Low Sub
-data <- read_csv(paste("/Users/aoqu/Desktop/NoWait_Research/NMF/", file_4, sep=""))
+data <- read_csv(paste("../Data/", file_4, sep=""))
 period <- substr(file, 28, 30)
 period <- ddays(as.numeric(730))
 min_num <- substr(file, 55, 56)
 period_vector <- c(period_vector, period)
 min_num_vector <- c(min_num_vector, min_num)
+data$Treated <- ifelse(data$Treated_Yelp == "Y", 1, 0)
 
 new_data <- dplyr::select(data, ID, Lat, Long, Treated, Zip, Review_count_before, Review_count_after, Rating_before, Rating_after, City_code, Match)
 new_data <- as.data.frame(na.omit(new_data))
@@ -455,10 +464,10 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
 orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
-new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
-vars = c(orig_vars, new_vars)
-
-df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
+#new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
+#vars = c(orig_vars, new_vars)
+vars = orig_vars
+# df_regression_1 = dummy.data.frame(df_regression_1, names=c("Name"), sep="_")
 
 #line
 fmla = as.formula(paste("complain_line ~ ", paste(vars, collapse="+")))

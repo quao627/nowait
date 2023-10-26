@@ -26,7 +26,6 @@ print('Number of total reviews (Treated), ')
 print(NROW(reviews[which((reviews$Treated_Yelp=='Y') & (reviews$Name %in% first_time_group)), ]))
 print('Number of total reviews (Control), ')
 print(NROW(reviews[which((reviews$Control=='Y')), ]))
-
 ```
 
 ```{r}
@@ -138,7 +137,7 @@ df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_rep
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "&", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, "-", "")}))
 df_regression_1$Name = unlist(lapply(df_regression_1$Name, function (x) {str_replace_all(x, " ", "_")}))
-orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Subjectivity", "Sent_length", "Food_quality", "Atmosphere")
+orig_vars = c("After", "Treated", "Treated_X_After", "nfriends", "useful", "elite", "nphotos_review", "checkin", "Fog_index", "Avg_word_length", "Sent_length", "Food_quality", "Atmosphere")
 # new_vars = paste("Name_", unique(df_regression_1$Name), sep="")
 # new_vars = new_vars[1:length(new_vars)-1]
 # vars = c(orig_vars, new_vars)
